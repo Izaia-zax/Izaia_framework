@@ -40,7 +40,34 @@ public class Process extends HttpServlet {
         }
     }
 
-
+    private void render(HttpServletRequest req, HttpServletResponse res, Object result) throws ServletException, IOException {
+        if (result == null) {
+            return;
+        }
+        if (result instanceof ModelAndView) {
+            ModelAndView mv = (ModelAndView) result;
+            if (mv.getView() == null || mv.getView().trim().isEmpty()) {
+                writeHtml(res, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "<p>Le ModelAndView ne contient aucune vue.</p>");
+                return;
+            }
+            for (Map.Entry<String, Object> entry : mv.getData().entrySet()) {
+                req.setAttribute(entry.getKey(), entry.getValue());
+            }
+            String view = mv.getView().startsWith("/") ? mv.getView() : "/" + mv.getView();
+            RequestDispatcher dispatcher = req.getRequestDispatcher(view);
+            if (dispatcher == null) {
+                writeHtml(res, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "<p>Vue introuvable : " + Util.escapeHtml(view) + "</p>");
+                return;
+            }
+            dispatcher.forward(req, res);
+            return;
+        }
+        // Sprint-3-bis : tout autre resultat est affiche tel quel
+        res.setContentType("text/plain;charset=UTF-8");
+        try (PrintWriter out = res.getWriter()) {
+            out.print(String.valueOf(result));
+        }
+    }
 
     private List<String> scanControllers(String packageName) throws Exception {
         List<String> found = new ArrayList<>();

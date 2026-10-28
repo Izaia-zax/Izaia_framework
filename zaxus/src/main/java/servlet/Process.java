@@ -87,6 +87,41 @@ public class Process extends HttpServlet {
         }
     }
 
+        private static String extractPath(HttpServletRequest req) {
+        String uri = req.getRequestURI();
+        String contextPath = req.getContextPath();
+        String path = (contextPath != null && uri.startsWith(contextPath)) ? uri.substring(contextPath.length()) : uri;
+        int semicolon = path.indexOf(';');
+        if (semicolon >= 0) {
+            path = path.substring(0, semicolon);
+        }
+        if (path.isEmpty()) {
+            path = "/";
+        }
+        if (path.length() > 1 && path.endsWith("/")) {
+            path = path.substring(0, path.length() - 1);
+        }
+        return path;
+    }
+
+     private static String notFoundBody(String path, RouteRegistry routes) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("<p>URL inconnue : <b>").append(Util.escapeHtml(path)).append("</b></p>");
+        sb.append("<h3>URLs valides :</h3>");
+        if (routes.size() == 0) {
+            sb.append("<p>Aucune URL enregistree.</p>");
+        } else {
+            sb.append("<ul>");
+            for (Route route : routes.all()) {
+                sb.append("<li>").append(Util.escapeHtml(route.getHttpMethod())).append(' ')
+                        .append(Util.escapeHtml(route.getUrl())).append(" &rarr; ")
+                        .append(Util.escapeHtml(route.getControllerClass().getName())).append('.')
+                        .append(Util.escapeHtml(route.getMethod().getName())).append("()</li>");
+            }
+            sb.append("</ul>");
+        }
+        return sb.toString();
+    }
     @Override
     public void doGet(HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
         processRequest(req, res);

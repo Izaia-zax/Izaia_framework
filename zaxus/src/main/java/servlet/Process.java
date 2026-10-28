@@ -63,7 +63,7 @@ public class Process extends HttpServlet {
         return found;
     }
 
-      public void processRequest(HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
+         public void processRequest(HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
         RouteRegistry routes = (RouteRegistry) getServletContext().getAttribute(FrontControllerListener.ROUTES_ATTRIBUTE);
         if (routes == null) {
             writeHtml(res, HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
@@ -88,22 +88,22 @@ public class Process extends HttpServlet {
             return;
         }
 
+        Object result;
+        try {
+            Object controller = route.getControllerClass().getDeclaredConstructor().newInstance();
+            result = route.getMethod().invoke(controller, resolveArguments(route.getMethod()));
+        } catch (InvocationTargetException e) {
+            Throwable cause = e.getCause() != null ? e.getCause() : e;
+            log("Erreur dans " + route, cause);
+            writeHtml(res, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, errorBody(route, cause));
+            return;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            log("Impossible d'executer " + route, e);
+            writeHtml(res, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, errorBody(route, e));
+            return;
+        }
 
-        private static String extractPath(HttpServletRequest req) {
-        String uri = req.getRequestURI();
-        String contextPath = req.getContextPath();
-        String path = (contextPath != null && uri.startsWith(contextPath)) ? uri.substring(contextPath.length()) : uri;
-        int semicolon = path.indexOf(';');
-        if (semicolon >= 0) {
-            path = path.substring(0, semicolon);
-        }
-        if (path.isEmpty()) {
-            path = "/";
-        }
-        if (path.length() > 1 && path.endsWith("/")) {
-            path = path.substring(0, path.length() - 1);
-        }
-        return path;
+        render(req, res, result);
     }
 
      private static String notFoundBody(String path, RouteRegistry routes) {

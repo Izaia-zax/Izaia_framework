@@ -63,45 +63,47 @@ public class Process extends HttpServlet {
         return found;
     }
 
-    public void processRequest(HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
-        StringBuilder url = new StringBuilder(req.getRequestURL());
-        String queryString = req.getQueryString();
-        if (queryString != null) {
-            url.append('?').append(queryString);
+         public void processRequest(HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
+        RouteRegistry routes = (RouteRegistry) getServletContext().getAttribute(FrontControllerListener.ROUTES_ATTRIBUTE);
+        if (routes == null) {
+            writeHtml(res, HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
+                    "<p>Erreur interne du framework : table des routes non initialisee.</p>");
+            return;
         }
 
-        res.setContentType("text/html;charset=UTF-8");
-        try (PrintWriter out = res.getWriter()) {
-            out.println("<!DOCTYPE html><html><body>");
-            out.println("<p>URL demandee : " + url + "</p>");
-            out.println("<h3>Controllers trouves dans le package \"" + controllersPackage + "\" :</h3>");
-            out.println("<ul>");
-            for (String controller : listControllers) {
-                out.println("<li>" + controller + "</li>");
+        String path = extractPath(req);
+        HttpMethod httpMethod = HttpMethod.fromString(req.getMethod());
+        Route route = httpMethod == null ? null : routes.find(path, httpMethod);
+
+        if (route == null) {
+            Set<HttpMethod> allowed = routes.allowedMethods(path);
+            if (!allowed.isEmpty()) {
+                res.setHeader("Allow", String.join(", ", allowed.stream().map(Enum::name).toArray(String[]::new)));
+                writeHtml(res, HttpServletResponse.SC_METHOD_NOT_ALLOWED,
+                        "<p>Methode " + Util.escapeHtml(req.getMethod()) + " non autorisee pour l'URL <b>"
+                                + Util.escapeHtml(path) + "</b>. Methodes autorisees : " + Util.escapeHtml(allowed) + ".</p>");
+            } else {
+                writeHtml(res, HttpServletResponse.SC_NOT_FOUND, notFoundBody(path, routes));
             }
-            out.println("</ul>");
-            out.println("</body></html>");
-        } catch (Exception e) {
-            e.printStackTrace();
-            res.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Erreur interne du framework.");
+            return;
         }
-    }
 
-        private static String extractPath(HttpServletRequest req) {
-        String uri = req.getRequestURI();
-        String contextPath = req.getContextPath();
-        String path = (contextPath != null && uri.startsWith(contextPath)) ? uri.substring(contextPath.length()) : uri;
-        int semicolon = path.indexOf(';');
-        if (semicolon >= 0) {
-            path = path.substring(0, semicolon);
+        Object result;
+        try {
+            Object controller = route.getControllerClass().getDeclaredConstructor().newInstance();
+            result = route.getMethod().invoke(controller, resolveArguments(route.getMethod()));
+        } catch (InvocationTargetException e) {
+            Throwable cause = e.getCause() != null ? e.getCause() : e;
+            log("Erreur dans " + route, cause);
+            writeHtml(res, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, errorBody(route, cause));
+            return;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            log("Impossible d'executer " + route, e);
+            writeHtml(res, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, errorBody(route, e));
+            return;
         }
-        if (path.isEmpty()) {
-            path = "/";
-        }
-        if (path.length() > 1 && path.endsWith("/")) {
-            path = path.substring(0, path.length() - 1);
-        }
-        return path;
+
+        render(req, res, result);
     }
 
      private static String notFoundBody(String path, RouteRegistry routes) {

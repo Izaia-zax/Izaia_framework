@@ -63,29 +63,31 @@ public class Process extends HttpServlet {
         return found;
     }
 
-    public void processRequest(HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
-        StringBuilder url = new StringBuilder(req.getRequestURL());
-        String queryString = req.getQueryString();
-        if (queryString != null) {
-            url.append('?').append(queryString);
+      public void processRequest(HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
+        RouteRegistry routes = (RouteRegistry) getServletContext().getAttribute(FrontControllerListener.ROUTES_ATTRIBUTE);
+        if (routes == null) {
+            writeHtml(res, HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
+                    "<p>Erreur interne du framework : table des routes non initialisee.</p>");
+            return;
         }
 
-        res.setContentType("text/html;charset=UTF-8");
-        try (PrintWriter out = res.getWriter()) {
-            out.println("<!DOCTYPE html><html><body>");
-            out.println("<p>URL demandee : " + url + "</p>");
-            out.println("<h3>Controllers trouves dans le package \"" + controllersPackage + "\" :</h3>");
-            out.println("<ul>");
-            for (String controller : listControllers) {
-                out.println("<li>" + controller + "</li>");
+        String path = extractPath(req);
+        HttpMethod httpMethod = HttpMethod.fromString(req.getMethod());
+        Route route = httpMethod == null ? null : routes.find(path, httpMethod);
+
+        if (route == null) {
+            Set<HttpMethod> allowed = routes.allowedMethods(path);
+            if (!allowed.isEmpty()) {
+                res.setHeader("Allow", String.join(", ", allowed.stream().map(Enum::name).toArray(String[]::new)));
+                writeHtml(res, HttpServletResponse.SC_METHOD_NOT_ALLOWED,
+                        "<p>Methode " + Util.escapeHtml(req.getMethod()) + " non autorisee pour l'URL <b>"
+                                + Util.escapeHtml(path) + "</b>. Methodes autorisees : " + Util.escapeHtml(allowed) + ".</p>");
+            } else {
+                writeHtml(res, HttpServletResponse.SC_NOT_FOUND, notFoundBody(path, routes));
             }
-            out.println("</ul>");
-            out.println("</body></html>");
-        } catch (Exception e) {
-            e.printStackTrace();
-            res.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Erreur interne du framework.");
+            return;
         }
-    }
+
 
         private static String extractPath(HttpServletRequest req) {
         String uri = req.getRequestURI();

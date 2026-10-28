@@ -21,17 +21,25 @@ public class Process extends HttpServlet {
 
     @Override
     public void init() throws ServletException {
-        controllersPackage = getInitParameter("controller_package_name");
-        if (controllersPackage == null || controllersPackage.trim().isEmpty()) {
-            throw new ServletException("Le parametre d'initialisation 'controller_package_name' est manquant dans web.xml.");
+        ServletContext context = getServletContext();
+        if (context.getAttribute(FrontControllerListener.ROUTES_ATTRIBUTE) != null) {
+            return; // deja rempli au demarrage par FrontControllerListener (Sprint-4)
+        }
+        // Secours : pas de listener declare, on construit la table ici.
+        String packageName = getInitParameter(FrontControllerListener.PACKAGE_PARAM);
+        if (packageName == null || packageName.trim().isEmpty()) {
+            packageName = context.getInitParameter(FrontControllerListener.PACKAGE_PARAM);
+        }
+        if (packageName == null || packageName.trim().isEmpty()) {
+            throw new ServletException("Le parametre '" + FrontControllerListener.PACKAGE_PARAM + "' est manquant dans web.xml.");
         }
         try {
-            listControllers = scanControllers(controllersPackage);
-        } catch (Exception e) {
-            throw new ServletException("Echec du scan des controllers dans le package '" + controllersPackage + "'.", e);
+            context.setAttribute(FrontControllerListener.ROUTES_ATTRIBUTE, RouteRegistry.build(packageName.trim()));
+        } catch (RuntimeException e) {
+            throw new ServletException("Echec de la construction des routes : " + e.getMessage(), e);
         }
-        
     }
+
 
 
     private List<String> scanControllers(String packageName) throws Exception {

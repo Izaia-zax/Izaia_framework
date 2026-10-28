@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="https://jakarta.ee/xml/ns/jakartaee" version="5.0">
+
+    <!-- Package a scanner pour trouver les @Controller -->
+    <context-param>
+        <param-name>controller_package_name</param-name>
+        <param-value>controllers</param-value>
+    </context-param>
+
+    <!-- Optionnel (Sprint 5-bis) : contexte Spring racine. DOIT etre declare AVANT le listener Zaxus. -->
+    <!--
+    <listener>
+        <listener-class>org.springframework.web.context.ContextLoaderListener</listener-class>
+    </listener>
+    <context-param>
+        <param-name>contextConfigLocation</param-name>
+        <param-value>/WEB-INF/applicationContext.xml</param-value>
+    </context-param>
+    -->
+
+    <!-- Sprint-4 : remplit la table des URLs au demarrage de l'application -->
+    <listener>
+        <listener-class>main.java.servlet.FrontControllerListener</listener-class>
+    </listener>
+
+    <!-- Sprint-0 : point d'entree unique -->
+    <servlet>
+        <servlet-name>FrontController</servlet-name>
+        <servlet-class>main.java.servlet.Process</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>FrontController</servlet-name>
+        <url-pattern>/</url-pattern>
+    </servlet-mapping>
+</web-app>

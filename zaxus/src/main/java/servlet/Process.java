@@ -1,23 +1,28 @@
 package main.java.servlet;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.net.URL;
-import java.util.ArrayList;
-import java.util.List;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.util.Map;
+import java.util.Set;
 
 import jakarta.servlet.RequestDispatcher;
+import jakarta.servlet.ServletContext;
 import jakarta.servlet.ServletException;
-import jakarta.servlet.http.*;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
-import main.java.annotations.Controller;
+import main.java.annotations.HttpMethod;
+import main.java.model.ModelAndView;
+import main.java.routing.Route;
+import main.java.routing.RouteRegistry;
+import main.java.util.Util;
 
 public class Process extends HttpServlet {
 
-    private String controllersPackage;
-
-    private List<String> listControllers;
+    private static final String SPRING_CONTEXT_CLASS = "org.springframework.web.context.WebApplicationContext";
 
     @Override
     public void init() throws ServletException {
@@ -40,65 +45,7 @@ public class Process extends HttpServlet {
         }
     }
 
-    private void render(HttpServletRequest req, HttpServletResponse res, Object result) throws ServletException, IOException {
-        if (result == null) {
-            return;
-        }
-        if (result instanceof ModelAndView) {
-            ModelAndView mv = (ModelAndView) result;
-            if (mv.getView() == null || mv.getView().trim().isEmpty()) {
-                writeHtml(res, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "<p>Le ModelAndView ne contient aucune vue.</p>");
-                return;
-            }
-            for (Map.Entry<String, Object> entry : mv.getData().entrySet()) {
-                req.setAttribute(entry.getKey(), entry.getValue());
-            }
-            String view = mv.getView().startsWith("/") ? mv.getView() : "/" + mv.getView();
-            RequestDispatcher dispatcher = req.getRequestDispatcher(view);
-            if (dispatcher == null) {
-                writeHtml(res, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "<p>Vue introuvable : " + Util.escapeHtml(view) + "</p>");
-                return;
-            }
-            dispatcher.forward(req, res);
-            return;
-        }
-        // Sprint-3-bis : tout autre resultat est affiche tel quel
-        res.setContentType("text/plain;charset=UTF-8");
-        try (PrintWriter out = res.getWriter()) {
-            out.print(String.valueOf(result));
-        }
-    }
-
-    private List<String> scanControllers(String packageName) throws Exception {
-        List<String> found = new ArrayList<>();
-
-        URL resource = Thread.currentThread().getContextClassLoader().getResource(packageName.replace('.', '/'));
-        if (resource == null) {
-            return found;
-        }
-
-        File folder = new File(resource.getFile());
-        File[] files = folder.listFiles();
-        if (files == null) {
-            return found;
-        }
-
-        for (File file : files) {
-            String name = file.getName();
-            if (file.isDirectory()) {
-                found.addAll(scanControllers(packageName + "." + name));
-            } else if (name.endsWith(".class")) {
-                Class<?> clazz = Class.forName(packageName + "." + name.substring(0, name.length() - 6));
-                if (clazz.isAnnotationPresent(Controller.class)) {
-                    found.add(clazz.getName());
-                }
-            }
-        }
-
-        return found;
-    }
-
-         public void processRequest(HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
+    public void processRequest(HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
         RouteRegistry routes = (RouteRegistry) getServletContext().getAttribute(FrontControllerListener.ROUTES_ATTRIBUTE);
         if (routes == null) {
             writeHtml(res, HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
@@ -141,7 +88,77 @@ public class Process extends HttpServlet {
         render(req, res, result);
     }
 
-     private static String notFoundBody(String path, RouteRegistry routes) {
+   
+    private Object[] resolveArguments(Method method) {
+        Object[] args = new Object[method.getParameterCount()];
+        if (args.length == 0) {
+            return args;
+        }
+        Class<?> springType = Util.loadClassOrNull(SPRING_CONTEXT_CLASS);
+        boolean wantsSpring = springType != null && Util.haveParameter(method, springType);
+        Object springContext = getServletContext().getAttribute(FrontControllerListener.SPRING_CONTEXT_ATTRIBUTE);
+        if (wantsSpring && springContext == null) {
+            throw new IllegalStateException("Pas de springcontext : la methode " + method.getName()
+                    + "() attend un WebApplicationContext mais aucun contexte Spring n'est disponible.");
+        }
+        Class<?>[] types = method.getParameterTypes();
+        for (int i = 0; i < types.length; i++) {
+            if (springType != null && types[i].equals(springType)) {
+                args[i] = springContext;
+            } else {
+                throw new IllegalStateException("Parametre non supporte (" + types[i].getName() + ") dans "
+                        + method.getDeclaringClass().getName() + "." + method.getName() + "().");
+            }
+        }
+        return args;
+    }
+
+    private void render(HttpServletRequest req, HttpServletResponse res, Object result) throws ServletException, IOException {
+        if (result == null) {
+            return;
+        }
+        if (result instanceof ModelAndView) {
+            ModelAndView mv = (ModelAndView) result;
+            if (mv.getView() == null || mv.getView().trim().isEmpty()) {
+                writeHtml(res, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "<p>Le ModelAndView ne contient aucune vue.</p>");
+                return;
+            }
+            for (Map.Entry<String, Object> entry : mv.getData().entrySet()) {
+                req.setAttribute(entry.getKey(), entry.getValue());
+            }
+            String view = mv.getView().startsWith("/") ? mv.getView() : "/" + mv.getView();
+            RequestDispatcher dispatcher = req.getRequestDispatcher(view);
+            if (dispatcher == null) {
+                writeHtml(res, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "<p>Vue introuvable : " + Util.escapeHtml(view) + "</p>");
+                return;
+            }
+            dispatcher.forward(req, res);
+            return;
+        }
+        res.setContentType("text/plain;charset=UTF-8");
+        try (PrintWriter out = res.getWriter()) {
+            out.print(String.valueOf(result));
+        }
+    }
+
+    private static String extractPath(HttpServletRequest req) {
+        String uri = req.getRequestURI();
+        String contextPath = req.getContextPath();
+        String path = (contextPath != null && uri.startsWith(contextPath)) ? uri.substring(contextPath.length()) : uri;
+        int semicolon = path.indexOf(';');
+        if (semicolon >= 0) {
+            path = path.substring(0, semicolon);
+        }
+        if (path.isEmpty()) {
+            path = "/";
+        }
+        if (path.length() > 1 && path.endsWith("/")) {
+            path = path.substring(0, path.length() - 1);
+        }
+        return path;
+    }
+
+    private static String notFoundBody(String path, RouteRegistry routes) {
         StringBuilder sb = new StringBuilder();
         sb.append("<p>URL inconnue : <b>").append(Util.escapeHtml(path)).append("</b></p>");
         sb.append("<h3>URLs valides :</h3>");
@@ -159,6 +176,22 @@ public class Process extends HttpServlet {
         }
         return sb.toString();
     }
+
+    private static String errorBody(Route route, Throwable cause) {
+        return "<p>Erreur pendant l'execution de <b>" + Util.escapeHtml(route) + "</b></p><pre>"
+                + Util.escapeHtml(cause) + "</pre>";
+    }
+
+    private static void writeHtml(HttpServletResponse res, int status, String body) throws IOException {
+        res.setStatus(status);
+        res.setContentType("text/html;charset=UTF-8");
+        try (PrintWriter out = res.getWriter()) {
+            out.println("<!DOCTYPE html><html><body>");
+            out.println(body);
+            out.println("</body></html>");
+        }
+    }
+
     @Override
     public void doGet(HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
         processRequest(req, res);

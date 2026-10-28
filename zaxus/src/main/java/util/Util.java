@@ -25,4 +25,25 @@ public static String escapeHtml(Object value) {
         }
         return sb.toString();
     }
+     public static boolean haveParameter(Method methode, Class<?> param) {
+        if (methode == null || param == null) {
+            return false;
+        }
+        for (Class<?> type : methode.getParameterTypes()) {
+            if (type.equals(param)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static Class<?> loadClassOrNull(String name) {
+        ClassLoader loader = Thread.currentThread().getContextClassLoader();
+        try {
+            return Class.forName(name, false, loader != null ? loader : Util.class.getClassLoader());
+        } catch (ClassNotFoundException | LinkageError e) {
+            return null;
+        }
+    }
+
 }
